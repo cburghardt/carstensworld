@@ -228,7 +228,7 @@ display:
         it.printf(x+27, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F04B2");
         it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_schlafen).state); 
 
-        // --- Mila / Kind 1 (mitte links) ---
+        // --- Kind 1 (mitte links) ---
         x = 20;
         y = 140;
         it.filled_rectangle(x + r, y, w - 2 * r, thickness);
@@ -244,7 +244,7 @@ display:
         it.printf(x+26, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F1077");
         it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_m).state);    
 
-        // --- David / Kind 2 (mitte rechts) ---
+        // --- Kind 2 (mitte rechts) ---
         x = 230;
         y = 140;
         it.filled_rectangle(x + r, y, w - 2 * r, thickness);
