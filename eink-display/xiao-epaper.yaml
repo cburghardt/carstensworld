@@ -1,5 +1,5 @@
 esphome:
-  name: esphome-web-a2e5dc
+  name: xiao-epaper
   friendly_name: Seed Dashboard
   name_add_mac_suffix: false
   on_boot:
@@ -146,19 +146,11 @@ font:
   - file: "fonts/Montserrat-Black.ttf"
     id: data_font
     size: 38
-  # Timestamp Font (klein)
-  - file: "fonts/Montserrat-Black.ttf"
-    id: timestamp_font
-    size: 14    
   # Sensor Font (Temperatur-Anzeige)
   - file: "fonts/Montserrat-Black.ttf"
     id: sensor_font
     size: 22
     glyphs: ' !"%()+,-.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz°öüäßÜ'
-  # Clock Font (große Uhr)
-  - file: "gfonts://Inter@700" 
-    id: clock_font
-    size: 260
   # Material Design Icons
   - file: 'fonts/materialdesignicons-webfont.ttf' 
     id: font_mdi_large
