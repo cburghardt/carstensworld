@@ -1,0 +1,17 @@
+# Secrets - niemals committen!
+secrets.yaml
+secrets.*.yaml
+
+# Backup files
+*.backup
+*.tmp
+
+# IDE settings
+.vscode/.DS_Store
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
