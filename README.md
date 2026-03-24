@@ -6,7 +6,7 @@ ESPHome Konfigurationen für meine Smart Home Projekte aus dem YouTube Kanal **C
 
 ### E-Ink Display (Xiao 7.5")
 - **Hardware:** Seeed Studio Xiao ESP32 + 7.5" E-Paper Display
-- **Video:** [Coming Soon]()
+- **Video:** https://youtu.be/-BWdE85hcqw
 - **Files:** `eink-display/`
 
 ## 🚀 Quick Start
