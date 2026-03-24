@@ -1,0 +1,399 @@
+esphome:
+  name: xiao-epaper
+  friendly_name: Seed Dashboard
+  name_add_mac_suffix: false
+  on_boot:
+    priority: -100
+    then:
+      - wait_until: api.connected  
+      - delay: 2s
+      - if:
+          condition:
+            lambda: 'return id(keep_awake).state;'  
+          then:
+            - logger.log: "Keeping awake"
+            - deep_sleep.prevent: deep_sleep_1  
+          else:
+            if:
+              condition:
+                - lambda: "return id(ha_time).now().hour > 4;"
+              then:
+                - logger.log: "Updating Display..."
+                - delay: 5s
+                - script.execute: update_display   
+                - delay: 10s
+                - deep_sleep.enter: deep_sleep_1                
+              else:
+                - deep_sleep.enter: deep_sleep_1       
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_key      
+
+# Allow Over-The-Air updates
+ota:
+  platform: esphome
+
+globals:
+  - id: wifi_status
+    type: int
+    restore_value: no
+    initial_value: "0"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  on_connect:
+    then:
+      - lambda: |-
+          id(wifi_status) = 1;
+  on_disconnect:
+    then:
+      - lambda: |-
+          id(wifi_status) = 0;
+
+# Deep Sleep Konfiguration
+deep_sleep:
+  id: deep_sleep_1
+  sleep_duration: 30min  
+
+script:
+  - id: update_display
+    then:
+      - component.update: my_display
+
+time:
+  - platform: homeassistant    
+    id: ha_time
+
+text_sensor:
+  # Trash Calendar (Abfallkalender)
+  - platform: homeassistant
+    id: ha_calendar_event_2
+    entity_id: calendar.trash
+    attribute: "message"
+  - platform: homeassistant
+    id: ha_calendar_start_time_2
+    entity_id: calendar.trash
+    attribute: "start_time"
+  - platform: homeassistant
+    id: ha_calendar_end_time_2
+    entity_id: calendar.trash
+    attribute: "end_time"
+  # Generic Calendar Events
+  - platform: homeassistant
+    entity_id: sensor.dashboard_calendar_events
+    attribute: events
+    id: calendar_events 
+  # Weather Summary
+  - platform: homeassistant
+    entity_id: input_text.weather_summary
+    id: weather_summary  
+
+sensor:    
+  # Outdoor Temperature
+  - platform: homeassistant
+    entity_id: sensor.outdoor_temperature_2
+    id: temp_outdoor
+  # Room Temperatures
+  - platform: homeassistant
+    entity_id: sensor.0x00158d00036bd523_temperature
+    id: temp_bad
+  - platform: homeassistant
+    entity_id: sensor.thread_climate_6_temperature
+    id: temp_m
+  - platform: homeassistant
+    entity_id: sensor.thread_climate_5_temperature
+    id: temp_d      
+  - platform: homeassistant
+    entity_id: sensor.thread_climate_4_temperature
+    id: temp_schlafen  
+  # Last Display Refresh (wird alle 10s aktualisiert)
+  - platform: template
+    name: "Last Display refresh"
+    id: last_display_refresh
+    icon: mdi:calendar-clock  
+    device_class: timestamp 
+    internal: False  
+    update_interval: 10s
+    lambda: |-
+      auto time_now = id(ha_time).now();    
+      if (time_now.is_valid()) {
+        return time_now.timestamp;    
+      } else {
+        return {};
+      }      
+
+binary_sensor:     
+  # Keep Awake Switch (verhindert Deep Sleep)
+  - platform: homeassistant
+    entity_id: input_boolean.seed_dashboard_keep_awake
+    id: keep_awake  
+
+# Fonts - HINWEIS: Diese Dateien müssen lokal im ESPHome-Ordner liegen!
+# Alternativ: Google Fonts nutzen (siehe README.md)
+font:
+  # Haupt-Font für Labels
+  - file: "fonts/Montserrat-Black.ttf"
+    id: data_font
+    size: 38
+  # Sensor Font (Temperatur-Anzeige)
+  - file: "fonts/Montserrat-Black.ttf"
+    id: sensor_font
+    size: 22
+    glyphs: ' !"%()+,-.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz°öüäßÜ'
+  # Material Design Icons
+  - file: 'fonts/materialdesignicons-webfont.ttf' 
+    id: font_mdi_large
+    size: 40
+    glyphs: &mdi-weather-glyphs 
+      - "\U000F02DC" # Home
+      - "\U000F032A" # Leaf   
+      - "\U000F09A0" # Shower
+      - "\U000F04B2" # Sleep
+      - "\U000F1077" # Woman
+      - "\U000F0643" # Man
+      - "\U000F0026" # Warn
+
+# SPI Bus für E-Paper Display
+spi:
+  clk_pin: GPIO8
+  mosi_pin: GPIO10
+
+# E-Paper Display Konfiguration
+display:
+  - platform: waveshare_epaper
+    id: my_display
+    cs_pin: GPIO3
+    dc_pin: GPIO5
+    busy_pin: 
+      number: GPIO4
+      inverted: true
+    reset_pin: GPIO2
+    model: 7.50inv2p
+    update_interval: never
+    full_update_every: 60 
+    lambda: |-     
+      // WiFi Status Check
+      if (id(wifi_status) == 0) {
+        it.print(230, 300, id(data_font), "CONNECTING..");
+      } else {            
+        // ========== TEMPERATUR BOXEN ==========
+        
+        // --- Bad (oben links) ---
+        int x = 20, y = 20, w = 200, h = 100, r = 10, thickness = 4;
+        it.filled_rectangle(x + r, y, w - 2 * r, thickness); // Top border
+        it.filled_rectangle(x + r, y + h - thickness, w - 2 * r, thickness); // Bottom border
+        it.filled_rectangle(x, y + r, thickness, h - 2 * r); // Left border
+        it.filled_rectangle(x + w - thickness, y + r, thickness, h - 2 * r); // Right border
+        it.filled_circle(x + r, y + r, r); // Top-left corner
+        it.filled_circle(x + w - r, y + r, r); // Top-right corner
+        it.filled_circle(x + r, y + h - r, r); // Bottom-left corner
+        it.filled_circle(x + w - r, y + h - r, r); // Bottom-right corner
+        it.filled_rectangle(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, COLOR_OFF);
+        it.printf(x+15, y+10, id(sensor_font), "Bad");
+        it.printf(x+25, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F09A0");
+        it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_bad).state);    
+
+        // --- Schlafzimmer (oben rechts) ---
+        x = 230;
+        y = 20;
+        it.filled_rectangle(x + r, y, w - 2 * r, thickness);
+        it.filled_rectangle(x + r, y + h - thickness, w - 2 * r, thickness);
+        it.filled_rectangle(x, y + r, thickness, h - 2 * r);
+        it.filled_rectangle(x + w - thickness, y + r, thickness, h - 2 * r);
+        it.filled_circle(x + r, y + r, r);
+        it.filled_circle(x + w - r, y + r, r);
+        it.filled_circle(x + r, y + h - r, r);
+        it.filled_circle(x + w - r, y + h - r, r);
+        it.filled_rectangle(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, COLOR_OFF);
+        it.printf(x+15, y+10, id(sensor_font), "Schlafzimmer");
+        it.printf(x+27, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F04B2");
+        it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_schlafen).state); 
+
+        // --- Kind 1 (mitte links) ---
+        x = 20;
+        y = 140;
+        it.filled_rectangle(x + r, y, w - 2 * r, thickness);
+        it.filled_rectangle(x + r, y + h - thickness, w - 2 * r, thickness);
+        it.filled_rectangle(x, y + r, thickness, h - 2 * r);
+        it.filled_rectangle(x + w - thickness, y + r, thickness, h - 2 * r);
+        it.filled_circle(x + r, y + r, r);
+        it.filled_circle(x + w - r, y + r, r);
+        it.filled_circle(x + r, y + h - r, r);
+        it.filled_circle(x + w - r, y + h - r, r);
+        it.filled_rectangle(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, COLOR_OFF);
+        it.printf(x+15, y+10, id(sensor_font), "Kind 1");
+        it.printf(x+26, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F1077");
+        it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_m).state);    
+
+        // --- Kind 2 (mitte rechts) ---
+        x = 230;
+        y = 140;
+        it.filled_rectangle(x + r, y, w - 2 * r, thickness);
+        it.filled_rectangle(x + r, y + h - thickness, w - 2 * r, thickness);
+        it.filled_rectangle(x, y + r, thickness, h - 2 * r);
+        it.filled_rectangle(x + w - thickness, y + r, thickness, h - 2 * r);
+        it.filled_circle(x + r, y + r, r);
+        it.filled_circle(x + w - r, y + r, r);
+        it.filled_circle(x + r, y + h - r, r);
+        it.filled_circle(x + w - r, y + h - r, r);
+        it.filled_rectangle(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, COLOR_OFF);
+        it.printf(x+15, y+10, id(sensor_font), "Kind 2");
+        it.printf(x+26, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F0643");
+        it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_d).state);         
+
+        // --- Outdoor (unten links) ---
+        x = 20;
+        y = 260;
+        it.filled_rectangle(x + r, y, w - 2 * r, thickness);
+        it.filled_rectangle(x + r, y + h - thickness, w - 2 * r, thickness);
+        it.filled_rectangle(x, y + r, thickness, h - 2 * r);
+        it.filled_rectangle(x + w - thickness, y + r, thickness, h - 2 * r);
+        it.filled_circle(x + r, y + r, r);
+        it.filled_circle(x + w - r, y + r, r);
+        it.filled_circle(x + r, y + h - r, r);
+        it.filled_circle(x + w - r, y + h - r, r);
+        it.filled_rectangle(x + thickness, y + thickness, w - 2 * thickness, h - 2 * thickness, COLOR_OFF);
+        it.printf(x+15, y+10, id(sensor_font), "Outdoor");
+        it.printf(x+25, y+70, id(font_mdi_large), TextAlign::CENTER, "\U000F032A");
+        it.printf(x+55,y+50, id(data_font), "%.1f°C", id(temp_outdoor).state);     
+
+        // ========== WEATHER SUMMARY (Text Wrapping) ==========
+        std::string s = id(weather_summary).state.c_str();
+        int limit = 58;
+        int space = 0;
+        int i = 0;
+        int line = 0;        
+        int line_start = 0;
+        y = 380;
+        std::string singleline;
+        while (i < s.length()) {
+          if (s.substr(i,1) == " ") {
+            space = i;
+          }
+          if (line > limit) {
+            singleline = s.substr(line_start, space-line_start);            
+            it.printf(20, y, id(sensor_font), "%s", singleline.c_str());
+            y = y+30;
+            line_start = space + 1;
+            if (i > space) {
+              line = i - space;
+            } else {
+              line = 0;
+            }
+          } else {
+            line++;  
+          }
+          i++;          
+        }
+        if (line > 0) {
+          singleline = s.substr(line_start, s.length()-line_start);
+          it.printf(20, y, id(sensor_font), "%s", singleline.c_str());
+        }
+
+        // ========== TRENNLINIE (vertikal) ==========
+        it.filled_rectangle(440, 10, 5, 360);  
+    
+        // ========== KALENDER EVENTS (rechts) ==========
+        struct Event {
+            std::string message;
+            std::string start_time;
+            std::string end_time;
+            time_t start_timestamp;
+        };
+
+        // Helper: Parse time string to time_t
+        auto parse_time = [](const std::string &time_str) -> time_t {
+            struct tm timeinfo = {};
+            if (strptime(time_str.c_str(), "%Y-%m-%d %H:%M:%S", &timeinfo) == nullptr) {                
+                ESP_LOGD("parse_time", "Invalid time:%s", time_str.c_str());
+                return 0;
+            }
+            return mktime(&timeinfo);
+        };
+
+        // Create event list mit Trash Calendar
+        std::vector<Event> events = {
+            {id(ha_calendar_event_2).state, id(ha_calendar_start_time_2).state, id(ha_calendar_end_time_2).state, parse_time(id(ha_calendar_start_time_2).state)},
+        };  
+
+        // Parse additional events from JSON sensor
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, id(calendar_events).state.c_str());
+        if (error) {
+          ESP_LOGD("Cal", "Parse error: %s", error.c_str());
+        } else {
+          JsonArray array = doc.as<JsonArray>();
+          for (int i = 0; i < array.size(); ++i) {
+            JsonVariant part = array[i];
+            events.push_back({ part["summary"],part["start"],part["end"],parse_time(part["start"]) });
+          }
+        }      
+        
+        // Filter invalid events
+        events.erase(std::remove_if(events.begin(), events.end(), [](const Event &e) { return e.start_timestamp == 0; }), events.end());
+
+        // Sort by start timestamp
+        std::sort(events.begin(), events.end(), [](const Event &a, const Event &b) {
+            return a.start_timestamp < a.start_timestamp;
+        });
+
+        // Helper: Format time (HH:MM)
+        auto format_time = [](std::string time_str) -> std::string {
+            struct tm timeinfo;
+            if (strptime(time_str.c_str(), "%Y-%m-%d %H:%M:%S", &timeinfo) == nullptr) {
+                return "Invalid";
+            }
+            char buffer[10];
+            strftime(buffer, sizeof(buffer), "%H:%M", &timeinfo); 
+            return std::string(buffer);
+        };
+        
+        // Helper: Format date (DD.MM.)
+        auto format_date = [](const std::string &time_str) -> std::string {
+            struct tm timeinfo = {};
+            if (strptime(time_str.c_str(), "%Y-%m-%d %H:%M:%S", &timeinfo) == nullptr) {
+                return "Invalid";
+            }
+            char buffer[7]; 
+            strftime(buffer, sizeof(buffer), "%d.%m.", &timeinfo);
+            return std::string(buffer);
+        };
+
+        // Draw events
+        int event_x_start_offset = 460;
+        int event_y_start_offset = 20;
+        for (const auto &event : events) {
+          if (event_y_start_offset >= 360) {
+            break;
+          }
+
+          std::string formatted_date = format_date(event.start_time);
+          std::string formatted_start_time = format_time(event.start_time);
+          std::string formatted_end_time = format_time(event.end_time);
+
+          std::string time_range = formatted_start_time + " - " + formatted_end_time;
+          if (formatted_start_time == formatted_end_time) {
+            time_range = "Ganztägig";
+          }
+          time_range = formatted_date + "  " + time_range;
+          if(formatted_start_time == "Invalid" || formatted_end_time == "Invalid"){
+            time_range.clear();
+          }
+          
+          it.printf(event_x_start_offset, event_y_start_offset, id(sensor_font), "%s", time_range.c_str());
+          event_y_start_offset += 30;
+          it.printf(event_x_start_offset, event_y_start_offset, id(sensor_font), "%.25s", event.message.c_str());
+          event_y_start_offset += 40;
+        }
+      }
