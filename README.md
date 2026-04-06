@@ -4,6 +4,12 @@ ESPHome Konfigurationen für meine Smart Home Projekte aus dem YouTube Kanal **C
 
 ## 📁 Projekte
 
+### Dashboard Timer (HA Voice PE + Waveshare 7" Display)
+- **Hardware:** Home Assistant Voice Preview Edition + Waveshare ESP32-S3 7" LCD Development Board
+- **Video:** [Demnächst verfügbar]
+- **Files:** `dashboard-timer/`
+- **Beschreibung:** ESPHome-Konfiguration für die HA Voice PE (Timer-Sensor-Export via Lambda) und das Waveshare 7"-Dashboard (LVGL Timer-Widget mit Fortschrittsbalken).
+
 ### E-Ink Display (Xiao 7.5")
 - **Hardware:** Seeed Studio Xiao ESP32 + 7.5" E-Paper Display
 - **Video:** https://youtu.be/-BWdE85hcqw
@@ -13,19 +19,19 @@ ESPHome Konfigurationen für meine Smart Home Projekte aus dem YouTube Kanal **C
 
 1. **Repository klonen:**
    ```bash
-   git clone https://github.com/cburghardt/carstensworld.git
+   git clone https://github.com/carsten19/carstensworld.git
    cd carstensworld
    ```
 
 2. **Secrets einrichten:**
    ```bash
-   cp eink-display/secrets.example.yaml eink-display/secrets.yaml
+   cp <projekt>/secrets.example.yaml <projekt>/secrets.yaml
    # Bearbeite secrets.yaml mit deinen Werten
    ```
 
 3. **In ESPHome einbinden:**
    - ESPHome Dashboard → New Device → Import existing YAML
-   - Oder per CLI: `esphome run eink-display/xiao-epaper.yaml`
+   - Oder per CLI: `esphome run <projekt>/<config>.yaml`
 
 4. **Auf ESP32 flashen:**
    - USB anschließen
