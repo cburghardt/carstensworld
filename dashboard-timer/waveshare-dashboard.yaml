@@ -39,16 +39,13 @@ psram:
   mode: octal
   speed: 80MHz
 
-# Enable logging
 logger:
-
-# Allow Over-The-Air updates
 ota:
-- platform: esphome
+  - platform: esphome
 
 api:
   encryption:
-    key: # add
+    key: !secret esphome_api_key # HINWEIS: Key muss in secrets.yaml stehen!
 
 wifi:
   ssid: !secret wifi_ssid
@@ -59,6 +56,7 @@ deep_sleep:
   run_duration: 60s  
   sleep_duration: 15min    
 
+# Bluetooth Proxy für bessere Abdeckung im Haus
 esp32_ble_tracker:
   scan_parameters:
     active: true
@@ -66,18 +64,14 @@ esp32_ble_tracker:
 bluetooth_proxy:
   active: true  
 
-################################################################################
-# I2C for touchscreen
-################################################################################
+# I2C für den GT911 Touch Controller
 i2c:
   sda: GPIO08
   scl: GPIO09
   scan: true
   id: bus_a
 
-################################################################################
-# IO Extender
-################################################################################
+# IO Extender für Hintergrundbeleuchtung & Reset
 ch422g:
   - id: ch422g_hub  
 
@@ -94,8 +88,7 @@ switch:
     pin: 
       ch422g: ch422g_hub
       number: 2
-      mode:
-        output: true
+      mode: output
       inverted: False
     restore_mode: ALWAYS_ON
     on_turn_on: 
@@ -108,6 +101,7 @@ switch:
     name: "Restart"
     id: device_restart
 
+  # Schutz gegen Einbrennen bei statischen Inhalten
   - platform: template
     name: Antiburn
     id: switch_antiburn
@@ -161,25 +155,9 @@ display:
     vsync_front_porch: 16
     vsync_pulse_width: 4
     data_pins:
-      red:
-        - 1         #r3
-        - 2         #r4
-        - 42        #r5
-        - 41        #r6
-        - 40        #r7
-      blue:
-        - 14        #b3
-        - 38        #b4
-        - 18        #b5
-        - 17        #b6
-        - 10        #b7
-      green:
-        - 39        #g2
-        - 0         #g3
-        - 45        #g4
-        - 48        #g5
-        - 47        #g6
-        - 21        #g7
+      red: [1, 2, 42, 41, 40]
+      blue: [14, 38, 18, 17, 10]
+      green: [39, 0, 45, 48, 47, 21]
 
 touchscreen:
   platform: gt911
@@ -193,16 +171,6 @@ touchscreen:
     swap_xy: true
     mirror_x: false
     mirror_y: true
-  on_touch:
-    - lambda: |-
-        ESP_LOGI("Touch", "Touch detected at x=%d, y=%d", touch.x, touch.y);
-  on_update:
-    - lambda: |-
-          for (auto touch: touches)  {
-            if (touch.state <= 2) {
-              ESP_LOGI("Touch points:", "id=%d x=%d, y=%d x.raw=%d, y.raw=%d", touch.id, touch.x, touch.y, touch.x_raw, touch.y_raw);
-            }
-          }  
   on_release:
     then:
       - if:
@@ -236,6 +204,7 @@ time:
                 - switch.is_off: switch_antiburn
               then:                
                 - script.execute: time_update
+      # Automatischer Antiburn-Run in der Nacht
       - hours: 1,2,3,4,5
         minutes: 0
         seconds: 0
@@ -246,12 +215,6 @@ time:
         seconds: 0
         then:
           - switch.turn_off: switch_antiburn  
-      - hours: 1,2,3,4
-        minutes: 20,40
-        seconds: 0
-        then:
-          - logger.log: "Sleeping.."
-          - deep_sleep.enter: deep_sleep_1
 
 script:
   - id: time_update
@@ -274,7 +237,6 @@ script:
           condition:
             - sun.is_above_horizon:
           then:
-            - logger.log: "Above horizon"
             - lvgl.widget.hide: lbl_sun_icon_up
             - lvgl.widget.show: lbl_sun_icon_down
             - lvgl.label.update:
@@ -283,7 +245,6 @@ script:
                   format: "%s"
                   args: [ 'id(sun_next_sunset).state.c_str()' ] 
           else:  
-            - logger.log: "Below horizon"
             - lvgl.widget.show: lbl_sun_icon_up
             - lvgl.widget.hide: lbl_sun_icon_down            
             - lvgl.label.update:
@@ -304,6 +265,7 @@ sensor:
               int n = snprintf(buf, sizeof(buf), "%.1f°C", x);
               for (int i = 0; i < n; i++) if (buf[i] == '.') buf[i] = ',';
               return std::string(buf);
+
   - platform: homeassistant
     entity_id: sensor.outdoor_temperature_2
     id: temperature_outdoor             
@@ -315,6 +277,8 @@ sensor:
               int n = snprintf(buf, sizeof(buf), "%.1f°C", x);
               for (int i = 0; i < n; i++) if (buf[i] == '.') buf[i] = ',';
               return std::string(buf);
+
+  # Der Timer-Sensor aus der HA Voice Preview Edition
   - platform: homeassistant
     entity_id: sensor.home_assistant_voice_091575_next_timer
     id: timer                      
@@ -336,14 +300,18 @@ sensor:
                     int remain_h = (int) id(timer).state/3600;
                     int remain_m = (int) (id(timer).state  - 3600*remain_h)/60;
                     int remain_s = (int) id(timer).state  - 3600*remain_h - 60*remain_m;
-                    static char date_buf[6];
-                    snprintf(date_buf, sizeof(date_buf), "%02d:%02d", remain_m, remain_s);                    
+                    static char date_buf[10];
+                    if (remain_h > 0) {
+                      snprintf(date_buf, sizeof(date_buf), "%d:%02d:%02d", remain_h, remain_m, remain_s);
+                    } else {
+                      snprintf(date_buf, sizeof(date_buf), "%02d:%02d", remain_m, remain_s);
+                    }
                     return date_buf;
               - lvgl.bar.update:
                   id: bar_timer
                   value: !lambda |-
-                    int percentage = id(timer).state / id(timer_original_secs) * 100;
-                    return percentage;
+                    // FIX: Float-Cast verhindert Integer-Division (Ergebnis wäre sonst immer 0)
+                    return (int)((float)id(timer).state / (float)id(timer_original_secs) * 100.0f);
             else:
               - if:
                   condition:
@@ -356,7 +324,6 @@ sensor:
                     - lambda: |-
                         id(timer_original_secs) = 0; 
                         ESP_LOGI("Timer", "Timer stopped");    
-                  
 
 text_sensor:            
   - platform: homeassistant
@@ -365,6 +332,7 @@ text_sensor:
   - platform: homeassistant
     entity_id: sensor.sun_next_setting_2
     id: sun_next_sunset              
+  
   - platform: homeassistant
     entity_id: media_player.kuche_3
     id: media_player      
@@ -372,8 +340,8 @@ text_sensor:
       - if:
           condition:
             - lambda:  |-
-                ESP_LOGI("TTS", "TTS:%s", id(tts_active).state); 
-                return (strcmp(x.c_str(), "playing") == 0 && id(tts_active).state.c_str() == "idle");                          
+                // FIX: strcmp für sauberen String-Vergleich nutzen
+                return (strcmp(x.c_str(), "playing") == 0 && strcmp(id(tts_active).state.c_str(), "idle") == 0);                          
           then:         
             - lvgl.label.update:
                 id: lbl_media_player
@@ -389,6 +357,7 @@ text_sensor:
             - lvgl.widget.hide: lbl_icon_music                      
             - lvgl.widget.show: lbl_calendar     
             - lvgl.widget.show: lbl_icon_calendar 
+
   - platform: homeassistant
     entity_id: media_player.kuche_3
     attribute: media_title
@@ -397,23 +366,15 @@ text_sensor:
     entity_id: media_player.kuche_3
     attribute: media_artist
     id: media_player_artist
-  - platform: homeassistant
-    entity_id: media_player.kuche_3
-    attribute: media_album_name
-    id: media_player_album    
-  - platform: homeassistant
-    entity_id: media_player.kuche_3
-    attribute: entity_picture
-    id: media_player_picture  
+
   - platform: homeassistant
     entity_id: sensor.dashboard_calendar_events
     attribute: next_event
-    id: calender_next_event  
+    id: calendar_next_event # FIX: calender -> calendar 
     on_value:
       - if:
           condition:
-            - lambda:  |-
-                return (x.length() > 0);                          
+            - lambda: 'return (x.length() > 0);'
           then:
             - lvgl.widget.show: obj_calendar                     
             - lvgl.label.update:
@@ -423,23 +384,18 @@ text_sensor:
                   args: [ 'x.c_str()' ]                       
           else:
             - lvgl.widget.hide: obj_calendar   
+
   - platform: homeassistant
     entity_id: sensor.datum
     id: date              
-    on_value: 
-      then:
-        - lvgl.label.update:
-            id: lbl_clock_longdate
-            text:
-              format: "%s"
-              args: [ 'x.c_str()' ]         
+  
   - platform: homeassistant
     entity_id: timer.tts_active
     id: tts_active                                      
 
 sun:
-  latitude: # add 
-  longitude: # add
+  latitude: !secret home_latitude   # HINWEIS: Pflichtfeld!
+  longitude: !secret home_longitude # HINWEIS: Pflichtfeld!
 
   on_sunrise:
     - then:
@@ -452,75 +408,40 @@ sun:
         - script.execute: sun_update  
 
 font:
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 700
+  - file: {type: gfonts, family: Roboto, weight: 700}
     id: font_clock
     size: 220
-    bpp: 4
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 500
+  - file: {type: gfonts, family: Roboto, weight: 500}
     id: font_sec
     size: 100
-    bpp: 4 
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 500
+  - file: {type: gfonts, family: Roboto, weight: 500}
     id: font_timer
     size: 80
-    bpp: 4        
   - file: 'fonts/materialdesignicons-webfont.ttf' 
     id: font_mdi_large
     size: 50
-    glyphs: 
-      - "\U000F0B7C" # Kitchen  
-      - "\U000F032A" # Leaf  
-      - "\U000F059B" # sunset down
-      - "\U000F059C" # sunset up
-      - "\U000F00ED" # Calendar
-      - "\U000F075A" # Music
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 400
+    glyphs: ["\U000F0B7C", "\U000F032A", "\U000F059B", "\U000F059C", "\U000F00ED", "\U000F075A"]
+  - file: {type: gfonts, family: Roboto, weight: 400}
     id: font_value
     size: 46
-    bpp: 4 
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 400
+  - file: {type: gfonts, family: Roboto, weight: 400}
     id: font_cal
     size: 32
-    bpp: 4    
     glyphs: " !\"%()+,-.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz°öüäß&'?"      
-  - file:
-      type: gfonts
-      family: Roboto
-      weight: 400
+  - file: {type: gfonts, family: Roboto, weight: 400}
     id: font_date
     size: 36
-    bpp: 4    
     glyphs: " !\"%()+,-.:/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz°öüäß&'?"   
 
 image:
   - file: 'images/blue_dots.jpg'
     id: wallpaper
     type: RGB565
-    transparency: opaque   
   - file: 'images/home_assistant_logo.png'
     id: boot_logo
     resize: 200x200
     type: RGB565
-    transparency: alpha_channel     
 
-################################################################################
-# LVGL
-################################################################################
 lvgl:
   displays: my_display
   touchscreens: my_touch
@@ -530,295 +451,121 @@ lvgl:
     widgets:
       - obj:
           id: boot_screen
-          x: 0
-          y: 0
           width: 100%
           height: 100%
           bg_color: 0xffffff
-          bg_opa: COVER
-          radius: 0
-          pad_all: 0
-          border_width: 0
           widgets:
-            - image:
-                align: CENTER
-                src: boot_logo
-                y: -40
-            - spinner:
-                align: CENTER
-                y: 95
-                height: 50
-                width: 50
-                spin_time: 1s
-                arc_length: 60deg
-                arc_width: 8
-                indicator:
-                  arc_color: 0x18bcf2
-                  arc_width: 8  
+            - image: {align: CENTER, src: boot_logo, y: -40}
+            - spinner: {align: CENTER, y: 95, height: 50, width: 50}
+
   pages:
     - id: page_time
-      bg_color: 0x3c414a
       bg_opa: TRANSP   
       widgets:  
+        # Uhrzeit-Container
         - obj:
             x: 5
             y: 5
-            align: TOP_LEFT
             width: 610
             height: 230
-            border_color: 0xFFFFFF
             border_width: 2
             border_opa: 30%
             bg_color: 0x16417d
             bg_opa: 30%
             radius: 4
-            pad_all: 4
-            scrollbar_mode: "off"
             widgets:
               - label:
                   id: lbl_clock_time
-                  x: 0
-                  y: 0
                   align: CENTER
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
                   text_font: font_clock
-                  text_align: CENTER
                   text: "--:--"
+        # Sekunden-Anzeige
         - obj:
             x: 310
             y: 60
             align: TOP_MID
-            border_width: 0
             width: 150
             height: 120
-            pad_all: 0
             widgets:
               - label:
                   id: lbl_clock_sec
-                  x: 0
-                  y: 0
                   align: CENTER
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
                   text_font: font_sec
-                  text_align: CENTER
                   text: "00"
+        
+        # Sensor-Badges (Küche, Außen, Sonne)
         - obj:
             x: 5
             y: 250
-            align: TOP_LEFT
             width: 250
             height: 80
-            border_color: 0xFFFFFF
-            border_width: 2
-            border_opa: 30%
             bg_color: 0x16417d
             bg_opa: 50%
             radius: 20
-            pad_all: 0
             widgets:
-              - label:
-                  x: 10
-                  y: 12
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: blue
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  text: "\U000F0B7C"      
-              - label:
-                  x: 75
-                  y: 12
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_value
-                  text_align: LEFT
-                  id: lbl_temperature_kitchen
-                  text: "--°C"                              
+              - label: {x: 10, y: 12, text_color: blue, text_font: font_mdi_large, text: "\U000F0B7C"}
+              - label: {x: 75, y: 12, text_font: font_value, id: lbl_temperature_kitchen, text: "--°C"}
+        
         - obj:
             x: 270
             y: 250
-            align: TOP_LEFT
             width: 250
             height: 80
-            border_color: 0xFFFFFF
-            border_width: 2
-            border_opa: 30%
             bg_color: 0x16417d
             bg_opa: 30%
             radius: 20
-            pad_all: 0
             widgets:
-              - label:
-                  x: 10
-                  y: 9
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: green
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  text: "\U000F032A"      
-              - label:
-                  x: 75
-                  y: 12
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_value
-                  text_align: LEFT
-                  id: lbl_temperature_outdoor
-                  text: "--°C"      
+              - label: {x: 10, y: 9, text_color: green, text_font: font_mdi_large, text: "\U000F032A"}
+              - label: {x: 75, y: 12, text_font: font_value, id: lbl_temperature_outdoor, text: "--°C"}
+
         - obj:
             x: 535
             y: 250
-            align: TOP_LEFT
             width: 250
             height: 80
-            border_color: 0xFFFFFF
-            border_width: 2
-            border_opa: 30%
             bg_color: 0x16417d
             bg_opa: 30%
             radius: 20
-            pad_all: 0
             widgets:
-              - label:
-                  x: 10
-                  y: 10
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: yellow
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  text: "\U000F059B"    
-                  id: lbl_sun_icon_down
-              - label:
-                  x: 10
-                  y: 10
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: yellow
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  text: "\U000F059C"    
-                  id: lbl_sun_icon_up
-                  hidden: true                   
-              - label:
-                  x: 75
-                  y: 12
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_value
-                  text_align: LEFT
-                  id: lbl_sun
-                  text: "--"         
+              - label: {x: 10, y: 10, text_color: yellow, text_font: font_mdi_large, text: "\U000F059B", id: lbl_sun_icon_down}
+              - label: {x: 10, y: 10, text_color: yellow, text_font: font_mdi_large, text: "\U000F059C", id: lbl_sun_icon_up, hidden: true}
+              - label: {x: 75, y: 12, text_font: font_value, id: lbl_sun, text: "--"}
+
+        # Kombinierter Media-Player / Kalender-Bereich
         - obj:
             x: 5
             y: 340
-            align: TOP_LEFT
             width: 780
             height: 70
-            border_color: 0xFFFFFF
-            border_width: 2
-            border_opa: 30%
             bg_color: 0x16417d
             bg_opa: 30%
             radius: 20
-            pad_all: 0
             id: obj_calendar
             widgets:
-              - label:
-                  x: 10
-                  y: 10
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  text: "\U000F00ED"    
-                  id: lbl_icon_calendar
-              - label:
-                  x: 10
-                  y: 10
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_mdi_large
-                  text_align: LEFT
-                  hidden: true
-                  text: "\U000F075A"    
-                  id: lbl_icon_music                 
-              - label:
-                  x: 70
-                  y: 16
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_cal
-                  text_align: LEFT
-                  id: lbl_calendar
-                  max_width: 680
-                  text: "--"    
-              - label:
-                  x: 70
-                  y: 16
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_color: 0xFFFFFF
-                  text_font: font_cal
-                  text_align: LEFT
-                  id: lbl_media_player
-                  max_width: 680
-                  hidden: true
-                  text: "--" 
+              - label: {x: 10, y: 10, text_font: font_mdi_large, text: "\U000F00ED", id: lbl_icon_calendar}
+              - label: {x: 10, y: 10, text_font: font_mdi_large, hidden: true, text: "\U000F075A", id: lbl_icon_music}
+              - label: {x: 70, y: 16, text_font: font_cal, id: lbl_calendar, max_width: 680, text: "--"}
+              - label: {x: 70, y: 16, text_font: font_cal, id: lbl_media_player, max_width: 680, hidden: true, text: "--"}
+
+        # Das Timer-Overlay (wird nur bei aktivem Timer eingeblendet)
         - obj:
             x: 255
             y: 340
             align: TOP_MID
-            border_color: 0xFFFFFF
             border_width: 3
-            border_opa: 30%
             bg_color: 0x16417d
             radius: 20
             width: 265
             height: 140
-            pad_all: 0
             id: obj_timer
             hidden: true
-            scrollbar_mode: "off"
             widgets:
-              - label:
-                  id: lbl_timer
-                  x: 0
-                  y: 0
-                  align: CENTER
-                  width: SIZE_CONTENT
-                  height: SIZE_CONTENT
-                  text_font: font_timer
-                  text_color: 0xFFFFFF
-                  text_align: RIGHT
-                  text: " "   
+              - label: {id: lbl_timer, align: CENTER, text_font: font_timer, text: " "}
               - bar:
                   x: 10
                   y: 115
                   width: 240
                   id: bar_timer
-                  value: 100
-                  min_value: 0
-                  max_value: 100 
-                  indicator:
-                    bg_color: 0xd47a19                                         
-        - label:
-            id: lbl_clock_longdate
-            x: 20
-            y: 425
-            width: SIZE_CONTENT
-            height: SIZE_CONTENT
-            text_color: 0xFFFFFF
-            text_font: font_date
-            text_align: LEFT
-            text: " "                                           
+                  indicator: {bg_color: 0xd47a19}
+
+        - label: {id: lbl_clock_longdate, x: 20, y: 425, text_font: font_date, text: " "}
