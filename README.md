@@ -6,7 +6,7 @@ ESPHome Konfigurationen für meine Smart Home Projekte aus dem YouTube Kanal **C
 
 ### Dashboard Timer (HA Voice PE + Waveshare 7" Display)
 - **Hardware:** Home Assistant Voice Preview Edition + Waveshare ESP32-S3 7" LCD Development Board
-- **Video:** [Demnächst verfügbar]
+- **Video:** https://www.youtube.com/watch?v=UrlC64jcwt4
 - **Files:** `dashboard-timer/`
 - **Beschreibung:** ESPHome-Konfiguration für die HA Voice PE (Timer-Sensor-Export via Lambda) und das Waveshare 7"-Dashboard (LVGL Timer-Widget mit Fortschrittsbalken).
 
