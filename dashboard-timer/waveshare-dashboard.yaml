@@ -310,7 +310,6 @@ sensor:
               - lvgl.bar.update:
                   id: bar_timer
                   value: !lambda |-
-                    // FIX: Float-Cast verhindert Integer-Division (Ergebnis wäre sonst immer 0)
                     return (int)((float)id(timer).state / (float)id(timer_original_secs) * 100.0f);
             else:
               - if:
@@ -340,7 +339,6 @@ text_sensor:
       - if:
           condition:
             - lambda:  |-
-                // FIX: strcmp für sauberen String-Vergleich nutzen
                 return (strcmp(x.c_str(), "playing") == 0 && strcmp(id(tts_active).state.c_str(), "idle") == 0);                          
           then:         
             - lvgl.label.update:
@@ -370,7 +368,7 @@ text_sensor:
   - platform: homeassistant
     entity_id: sensor.dashboard_calendar_events
     attribute: next_event
-    id: calendar_next_event # FIX: calender -> calendar 
+    id: calendar_next_event 
     on_value:
       - if:
           condition:
